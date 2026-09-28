@@ -1,0 +1,35 @@
+name: Keep Supabase project awake
+
+# Supabase's free tier auto-pauses a project after 7 days with no API
+# activity. Lakshya's Sign in with Apple depends on that project being
+# reachable — a paused project is exactly what caused an App Store
+# rejection (Guideline 2.1(a), Sept 28 2026: "Sign in with Apple returned
+# an error" during review, because the backend was asleep).
+#
+# This job pings the project's public Auth health endpoint every 3 days,
+# well inside the 7-day pause window, so it never goes idle.
+# SUPABASE_URL / SUPABASE_ANON_KEY are repo secrets (Settings > Secrets
+# and variables > Actions) rather than values in this file.
+
+on:
+  schedule:
+    - cron: "0 6 */3 * *"  # every 3 days at 06:00 UTC
+  workflow_dispatch: {}     # lets you trigger it manually from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase Auth health endpoint
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          status=$(curl -s -o /tmp/body -w "%{http_code}" "$SUPABASE_URL/auth/v1/health" \
+            -H "apikey: $SUPABASE_ANON_KEY")
+          echo "HTTP $status"
+          cat /tmp/body
+          if [ "$status" -lt 200 ] || [ "$status" -ge 300 ]; then
+            echo "::error::Supabase health check failed with status $status"
+            exit 1
+          fi
